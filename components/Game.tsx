@@ -38,7 +38,7 @@ export function Game({challengeId}:{challengeId?:string}){
   const finishing=useRef(false);
   const lastUrgentSecond=useRef(11);
   const stageRef=useRef(1);
-  const announcementTimerRef=useRef<number>();
+  const announcementTimerRef=useRef<number|undefined>(undefined);
   const arenaRef=useRef<HTMLDivElement>(null);
   const audioRef=useRef<AudioContext|null>(null);
   const mediaAudioPoolRef=useRef<HTMLAudioElement[]>([]);
