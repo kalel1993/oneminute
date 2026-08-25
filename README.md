@@ -40,7 +40,7 @@ npm run build
 ## Vercel launch checklist
 
 1. Import the GitHub repository into Vercel; framework preset is Next.js and no custom build command is needed.
-2. Add `DATABASE_URL` as a secret environment variable. Never expose it with a `NEXT_PUBLIC_` prefix.
+2. Add `DATABASE_URL` as a secret environment variable. Never expose it with a `NEXT_PUBLIC_` prefix. Redeploy production after any environment-variable change; existing deployments do not inherit new values.
 3. Apply the migration once before accepting ranked traffic.
 4. Deploy and smoke-test home, a full 60-second run, both leaderboard filters, challenge creation, challenge acceptance, and the dynamic 1200×630 challenge card.
 5. Assign `oneminute.lol` and `www.oneminute.lol`, redirect `www` to the apex, and verify DNS/SSL.
