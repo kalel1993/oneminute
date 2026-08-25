@@ -9,31 +9,71 @@
 .stageAnnouncement{
   pointer-events:none;
   position:fixed;
-  inset:15% 0 0;
+  top:calc(15% + 10px);
+  left:50%;
   z-index:6;
-  display:grid;
-  place-items:center;
-  color:var(--acid);
-  background:#0b0b0ad9;
-  font-size:clamp(44px,11vw,120px);
+  transform:translateX(-50%);
+  color:var(--ink);
+  background:var(--acid);
+  padding:9px 14px;
+  border:1px solid #e4ff88;
+  font-size:clamp(14px,3vw,22px);
   font-weight:950;
-  letter-spacing:-.06em;
+  letter-spacing:.04em;
   text-align:center;
   text-transform:uppercase;
-  animation:stageBurst .95s ease-out forwards;
+  white-space:nowrap;
+  animation:stageToast .65s ease-out forwards;
 }
-.arena .target{
-  min-width:24px;
-  min-height:24px;
+.targetHit{
+  position:absolute;
+  transform:translate(-50%,-50%);
+  display:grid;
+  place-items:center;
   padding:0;
-  font-size:clamp(7px,1.5vw,11px);
-  line-height:1;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  cursor:pointer;
+  touch-action:manipulation;
 }
-@keyframes stageBurst{
-  0%{opacity:0;transform:scale(.65)}
-  18%{opacity:1;transform:scale(1.08)}
-  65%{opacity:1;transform:scale(1)}
-  100%{opacity:0;transform:scale(1.12)}
+.targetVisual{
+  pointer-events:none;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:var(--acid);
+  color:var(--ink);
+  font-size:clamp(7px,1.5vw,11px);
+  font-weight:950;
+  line-height:1;
+  box-shadow:0 0 0 7px #c9ff1822;
+}
+.finalTen .targetVisual{
+  box-shadow:0 0 0 7px #c9ff1828,0 0 22px #c9ff1844;
+}
+@keyframes stageToast{
+  0%{opacity:0;transform:translateX(-50%) translateY(-8px) scale(.94)}
+  20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.03)}
+  70%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
+  100%{opacity:0;transform:translateX(-50%) translateY(-4px) scale(1)}
+}
+.heroActions{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:stretch;
+}
+.heroActions .megaButton{
+  min-width:min(100%,260px);
+}
+.secondaryMega{
+  background:transparent;
+  color:var(--paper);
+  border:1px solid #555;
+}
+.secondaryMega:hover,.secondaryMega:focus-visible{
+  border-color:var(--acid);
 }
 .replayHook{
   margin:8px 0 20px;
@@ -143,5 +183,7 @@
   .playLinks{flex-direction:column;gap:6px;}
   .claimName>div{flex-direction:column;}
   .claimName button{min-height:48px;}
-  .stageAnnouncement{inset:15% 0 0;font-size:clamp(40px,14vw,76px);}
+  .stageAnnouncement{top:calc(15% + 8px);font-size:14px;padding:8px 11px;}
+  .heroActions{flex-direction:column;max-width:430px;}
+  .heroActions .megaButton{width:100%;max-width:none;}
 }
