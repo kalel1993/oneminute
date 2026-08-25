@@ -1,8 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gte } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getDb, hasDb } from '@/lib/db';
 import { challenges, players, sessions } from '@/lib/db/schema';
+import { BUTTON_RUSH_V2_STARTED_AT } from '@/lib/game/version';
 import { bodyWithinLimit, payloadTooLarge, rateLimitRequest } from '@/lib/protection';
 import { identity, sameOrigin, token } from '@/lib/server';
 
@@ -40,11 +41,12 @@ export async function POST(req: Request) {
         eq(sessions.id, body.data.sessionId),
         eq(sessions.playerId, player.id),
         eq(sessions.valid, true),
+        gte(sessions.startedAt, BUTTON_RUSH_V2_STARTED_AT),
       ),
     )
     .limit(1);
   if (!session) {
-    return NextResponse.json({ error: 'Only your verified score can be challenged.' }, { status: 400 });
+    return NextResponse.json({ error: 'Only your verified Button Rush V2 score can be challenged.' }, { status: 400 });
   }
 
   const id = token(6);
@@ -73,10 +75,15 @@ export async function GET(req: Request) {
     .from(challenges)
     .innerJoin(players, eq(players.id, challenges.creatorId))
     .innerJoin(sessions, eq(sessions.id, challenges.sessionId))
-    .where(and(eq(challenges.id, id), eq(sessions.valid, true)))
+    .where(
+      and(
+        eq(challenges.id, id),
+        eq(sessions.valid, true),
+        gte(sessions.startedAt, BUTTON_RUSH_V2_STARTED_AT),
+      ),
+    )
     .limit(1);
   return row
     ? NextResponse.json(row)
-    : NextResponse.json({ error: 'Challenge not found' }, { status: 404 });
+    : NextResponse.json({ error: 'Challenge is unavailable or was created on Button Rush V1.' }, { status: 404 });
 }
-

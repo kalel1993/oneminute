@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
 import {track} from '@vercel/analytics';
-import {GameEvent,stats,targetAt,Target} from '@/lib/game/engine';
+import {activeTargetCount,GameEvent,stats,targetsAt} from '@/lib/game/engine';
 
 type Phase='ready'|'countdown'|'playing'|'result';
 type Session={sessionId:string;seed:number;duration:number;ranked:boolean;displayName:string;usage?:{freeRemaining:number;creditUsed:boolean;credits:number}};
@@ -21,7 +21,7 @@ export function Game({challengeId}:{challengeId?:string}){
   const[phase,setPhase]=useState<Phase>('ready');
   const[count,setCount]=useState('3');
   const[session,setSession]=useState<Session>();
-  const[target,setTarget]=useState<Target>();
+  const[generations,setGenerations]=useState<[number,number,number,number]>([0,0,0,0]);
   const[events,setEvents]=useState<GameEvent[]>([]);
   const[remaining,setRemaining]=useState(60000);
   const[muted,setMuted]=useState(false);
@@ -31,16 +31,23 @@ export function Game({challengeId}:{challengeId?:string}){
   const[rival,setRival]=useState<{name:string;score:number}>();
   const[challengeUrl,setChallengeUrl]=useState('');
   const[arenaSize,setArenaSize]=useState({w:0,h:0});
+  const[stageAnnouncement,setStageAnnouncement]=useState('');
   const startRef=useRef(0);
   const eventsRef=useRef<GameEvent[]>([]);
+  const generationsRef=useRef<[number,number,number,number]>([0,0,0,0]);
   const finishing=useRef(false);
   const lastUrgentSecond=useRef(11);
+  const stageRef=useRef(1);
+  const announcementTimerRef=useRef<number|undefined>(undefined);
   const arenaRef=useRef<HTMLDivElement>(null);
   const audioRef=useRef<AudioContext|null>(null);
   const mediaAudioPoolRef=useRef<HTMLAudioElement[]>([]);
   const mediaAudioIndexRef=useRef(0);
   const score=events.filter(e=>e.type==='hit').length;
+  const elapsed=session?Math.max(0,session.duration-remaining):0;
+  const activeCount=activeTargetCount(elapsed);
   const urgentSecond=remaining<=10000&&remaining>0?Math.ceil(remaining/1000):null;
+  const renderedTargets=session&&phase==='playing'?targetsAt(session.seed,generations,elapsed):[];
 
   const configurePlaybackSession=useCallback(()=>{
     try{
@@ -165,6 +172,21 @@ export function Game({challengeId}:{challengeId?:string}){
   },[phase,finish,session]);
 
   useEffect(()=>{
+    if(phase!=='playing'||activeCount<=stageRef.current)return;
+    stageRef.current=activeCount;
+    const label=activeCount===2?'DOUBLE TROUBLE':'QUAD MODE 😈';
+    setStageAnnouncement(label);
+    playSound(activeCount===2?980:1180,.18);
+    navigator.vibrate?.(activeCount===2?[70,40,70]:[70,30,70,30,100]);
+    if(announcementTimerRef.current)window.clearTimeout(announcementTimerRef.current);
+    announcementTimerRef.current=window.setTimeout(()=>setStageAnnouncement(''),950);
+  },[phase,activeCount,playSound]);
+
+  useEffect(()=>()=>{
+    if(announcementTimerRef.current)window.clearTimeout(announcementTimerRef.current);
+  },[]);
+
+  useEffect(()=>{
     if(phase!=='playing'||urgentSecond===null||urgentSecond===lastUrgentSecond.current)return;
     lastUrgentSecond.current=urgentSecond;
     playSound(520+(10-urgentSecond)*55,.12);
@@ -202,8 +224,11 @@ export function Game({challengeId}:{challengeId?:string}){
     if(!muted)await unlockAudio();
     finishing.current=false;
     lastUrgentSecond.current=11;
+    stageRef.current=1;
+    generationsRef.current=[0,0,0,0];
     eventsRef.current=[];
-    setEvents([]);setSubmit(undefined);setRival(undefined);setChallengeUrl('');setMessage('');
+    setGenerations([0,0,0,0]);
+    setEvents([]);setSubmit(undefined);setRival(undefined);setChallengeUrl('');setMessage('');setStageAnnouncement('');
     try{
       const mode:'touch'|'mouse'=matchMedia('(pointer: coarse)').matches?'touch':'mouse';
       const r=await fetch('/api/session/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode})});
@@ -217,7 +242,7 @@ export function Game({challengeId}:{challengeId?:string}){
         await new Promise(res=>setTimeout(res,value==='GO'?500:750));
       }
       startRef.current=performance.now();
-      setRemaining(s.duration);setTarget(targetAt(s.seed,0,0));setPhase('playing');
+      setRemaining(s.duration);setPhase('playing');
     }finally{setStarting(false)}
   }
 
@@ -228,15 +253,17 @@ export function Game({challengeId}:{challengeId?:string}){
     }else setMuted(true);
   }
 
-  function hit(e:React.PointerEvent<HTMLButtonElement>){
+  function hit(e:React.PointerEvent<HTMLButtonElement>,targetId:number){
     e.stopPropagation();
     if(phase!=='playing'||!session)return;
     const arena=e.currentTarget.parentElement!.getBoundingClientRect();
     const t=performance.now()-startRef.current;
-    const ev:GameEvent={type:'hit',t,x:(e.clientX-arena.left)/arena.width*100,y:(e.clientY-arena.top)/arena.height*100};
+    const ev:GameEvent={type:'hit',t,x:(e.clientX-arena.left)/arena.width*100,y:(e.clientY-arena.top)/arena.height*100,targetId};
     eventsRef.current=[...eventsRef.current,ev];setEvents(eventsRef.current);
-    const nextIndex=eventsRef.current.filter(x=>x.type==='hit').length;
-    setTarget(targetAt(session.seed,nextIndex,t));
+    const next=[...generationsRef.current] as [number,number,number,number];
+    next[targetId]+=1;
+    generationsRef.current=next;
+    setGenerations(next);
     playSound(600+score*4);navigator.vibrate?.(12);
   }
 
@@ -262,7 +289,7 @@ export function Game({challengeId}:{challengeId?:string}){
   async function shareCurrent(kind:'challenge'|'score'){
     try{
       const url=await ensureChallengeUrl();
-      const text=`${session?.displayName??'I'} hit ${score} in 60 seconds on OneMinute.lol. Can you beat it?`;
+      const text=`${session?.displayName??'I'} hit ${score} in Button Rush V2 on OneMinute.lol. Can you beat it?`;
       track('share_clicked',{kind});
       if(navigator.share){
         await navigator.share({title:`Beat ${score} in 60 seconds`,text,url}).catch(()=>{});
@@ -274,12 +301,12 @@ export function Game({challengeId}:{challengeId?:string}){
   }
 
   if(phase==='ready')return <main className="result">
-    <p className="kicker">BUTTON RUSH · {challengeId?'CHALLENGE RUN':'ONE MINUTE'}</p>
+    <p className="kicker">BUTTON RUSH V2 · {challengeId?'CHALLENGE RUN':'ONE MINUTE'}</p>
     <h2>READY<span>?</span></h2>
-    <p className="lede">Hit every electric target. It gets smaller, farther and meaner. No signup before your first run.</p>
+    <p className="lede">One target. Then two. Then four. They keep shrinking until the final second 😈</p>
     {message&&<p className="notice" role="alert">{message} {message.includes('Log in')&&<Link href="/sign-in">Log in →</Link>} {message.includes('credit')&&<Link href="/account">Get credits →</Link>}</p>}
     <button className="action" disabled={starting} onClick={()=>void begin()}>{starting?'STARTING…':'START 60 SECONDS →'}</button>
-    <div className="playLinks"><span>Automatic leaderboard name</span><span>3 free ranked plays daily</span></div>
+    <div className="playLinks"><span>30s left → 2 targets</span><span>20s left → 4 targets</span><span>3 free ranked plays daily</span></div>
     <Link href="/" className="fine" style={{marginTop:20}}>← Back home</Link>
   </main>;
 
@@ -287,32 +314,48 @@ export function Game({challengeId}:{challengeId?:string}){
 
   if(phase==='playing'){
     const minArena=Math.min(arenaSize.w||700,arenaSize.h||700);
-    const targetPixels=target?Math.max(28,Math.min(96,minArena*target.r*.02)):72;
     return <main className={`gameShell${urgentSecond!==null?' finalTen':''}`}>
-      <div className="hud"><div><label>SCORE</label><strong>{score}</strong></div><div className="timeReadout"><label>{urgentSecond!==null?'FINAL TEN':'TIME'}</label><strong>{(remaining/1000).toFixed(1)}</strong></div><button onClick={()=>void toggleSound()} aria-label={muted?'Unmute sounds':'Mute sounds'}>{muted?'SOUND OFF':'SOUND ON'}</button></div>
+      <div className="hud">
+        <div><label>SCORE</label><strong>{score}</strong></div>
+        <div className="stageReadout"><label>MODE</label><strong>{activeCount}×</strong></div>
+        <div className="timeReadout"><label>{urgentSecond!==null?'FINAL TEN':'TIME'}</label><strong>{(remaining/1000).toFixed(1)}</strong></div>
+        <button onClick={()=>void toggleSound()} aria-label={muted?'Unmute sounds':'Mute sounds'}>{muted?'SOUND OFF':'SOUND ON'}</button>
+      </div>
+      {stageAnnouncement&&<div className="stageAnnouncement" aria-live="assertive">{stageAnnouncement}</div>}
       {urgentSecond!==null&&<div className="urgentCountdown" aria-live="assertive" aria-atomic="true"><span>{urgentSecond}</span><b>SECONDS</b></div>}
-      <div ref={arenaRef} className="arena" onPointerDown={miss}>{target&&<button aria-label="Hit target" className="target" onPointerDown={hit} style={{left:`${target.x}%`,top:`${target.y}%`,width:`${targetPixels}px`,height:`${targetPixels}px`}}>HIT</button>}</div>
+      <div ref={arenaRef} className="arena" onPointerDown={miss}>
+        {renderedTargets.map(target=>{
+          const targetPixels=Math.max(24,Math.min(96,minArena*target.r*.02));
+          return <button
+            key={target.id}
+            aria-label={`Hit target ${target.id+1}`}
+            className="target"
+            onPointerDown={e=>hit(e,target.id)}
+            style={{left:`${target.x}%`,top:`${target.y}%`,width:`${targetPixels}px`,height:`${targetPixels}px`}}
+          >HIT</button>;
+        })}
+      </div>
     </main>;
   }
 
   const s=stats(events);
   const result=submit?.result;
   const challengeWon=Boolean(rival&&s.score>rival.score);
-  let replayHook='Beat your own score. One minute.';
+  let replayHook='Beat your own V2 score. One minute.';
   if(rival){
     if(s.score>rival.score)replayHook=`You beat ${rival.name} by ${s.score-rival.score}. Send it back.`;
     else if(s.score===rival.score)replayHook='Dead heat. One more hit wins it.';
     else replayHook=`You need ${rival.score-s.score+1} more hit${rival.score-s.score+1===1?'':'s'} to beat ${rival.name}.`;
   }else if(result?.rank===1){
-    replayHook='You are #1. Defend it.';
+    replayHook='You are V2 #1. Defend it.';
   }else if(result?.nextTarget){
     replayHook=`${result.nextTarget.hitsNeeded} more hit${result.nextTarget.hitsNeeded===1?'':'s'} to reach #${result.nextTarget.rank}.`;
   }
 
   return <main className="result">
-    <p className="kicker">{result?.worldRecord?'NEW WORLD RECORD':'TIME'} · {submit?.ranked?'VERIFIED RUN':'LOCAL / UNRANKED'}</p>
+    <p className="kicker">BUTTON RUSH V2 · {result?.worldRecord?'NEW WORLD RECORD':'TIME'} · {submit?.ranked?'VERIFIED RUN':'LOCAL / UNRANKED'}</p>
     <h2><span>{s.score}</span> HITS</h2>
-    <p className="notice">{rival?`${s.score>rival.score?'YOU WIN':s.score===rival.score?'DEAD HEAT':'THEY WIN'} — ${rival.name} scored ${rival.score}.`:submit?.ranked?`Top ${Math.max(1,100-(result?.percentile||0))}% · rank #${result?.rank}. ${result?.worldRecord?'You genuinely set the pace.':''}`:submit?.reason||'Checking your run…'}</p>
+    <p className="notice">{rival?`${s.score>rival.score?'YOU WIN':s.score===rival.score?'DEAD HEAT':'THEY WIN'} — ${rival.name} scored ${rival.score}.`:submit?.ranked?`Top ${Math.max(1,100-(result?.percentile||0))}% · rank #${result?.rank}. ${result?.worldRecord?'You genuinely set the V2 pace.':''}`:submit?.reason||'Checking your run…'}</p>
     <p className="replayHook">{replayHook}</p>
     {session?.usage&&<p className="fine">Playing as <b>{session.displayName}</b> · {session.usage.creditUsed?'1 credit used.':`${session.usage.freeRemaining} free play${session.usage.freeRemaining===1?'':'s'} left today.`} <Link className="accountCta" href="/account">KEEP MY SCORES →</Link></p>}
     <div className="resultGrid"><div><b>{s.accuracy}%</b><small>Accuracy</small></div><div><b>{s.averageReaction}ms</b><small>Avg reaction</small></div><div><b>{s.streak}</b><small>Best streak</small></div><div><b>{s.misses}</b><small>Misses</small></div></div>

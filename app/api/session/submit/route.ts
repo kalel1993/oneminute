@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, isNull, sql } from 'drizzle-orm';
 import { identity, sameOrigin, fingerprint, token } from '@/lib/server';
 import { getDb, hasDb } from '@/lib/db';
 import { activity, sessions, submissions } from '@/lib/db/schema';
 import { validateTrace } from '@/lib/game/validation';
+import { BUTTON_RUSH_V2_STARTED_AT } from '@/lib/game/version';
 import { bodyWithinLimit, payloadTooLarge, rateLimitRequest } from '@/lib/protection';
 
 const event = z.object({
@@ -12,6 +13,7 @@ const event = z.object({
   t: z.number().nonnegative(),
   x: z.number(),
   y: z.number(),
+  targetId: z.number().int().min(0).max(3).optional(),
 });
 
 export async function POST(req: Request) {
@@ -57,16 +59,24 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
+  if (session.startedAt < BUTTON_RUSH_V2_STARTED_AT) {
+    return NextResponse.json({ ranked: false, reason: 'Button Rush upgraded to V2. Start a new run.', result: null });
+  }
   if (session.finishedAt) {
     return NextResponse.json({ ranked: session.valid, result: { score: session.score } });
   }
 
   const elapsed = Date.now() - session.startedAt.getTime();
   const result = validateTrace(session.seed, body.data.events, elapsed);
+  const v2ModeFilter = and(
+    eq(sessions.valid, true),
+    eq(sessions.mode, session.mode),
+    gte(sessions.startedAt, BUTTON_RUSH_V2_STARTED_AT),
+  );
   const [recordBefore] = await db
     .select({ score: sql<number | null>`max(${sessions.score})` })
     .from(sessions)
-    .where(and(eq(sessions.valid, true), eq(sessions.mode, session.mode)));
+    .where(v2ModeFilter);
   const previousRecord = recordBefore?.score ?? null;
 
   const [finalized] = await db
@@ -102,7 +112,7 @@ export async function POST(req: Request) {
   await db.insert(activity).values({
     id: token(),
     playerId: player.id,
-    kind: `completed:${session.mode}`,
+    kind: `completed:${session.mode}:v2`,
     score: result.score,
   });
 
@@ -112,7 +122,7 @@ export async function POST(req: Request) {
       bestScore: sql<number>`max(${sessions.score})`.as('best_score'),
     })
     .from(sessions)
-    .where(and(eq(sessions.valid, true), eq(sessions.mode, session.mode)))
+    .where(v2ModeFilter)
     .groupBy(sessions.playerId)
     .as('best_scores');
 
