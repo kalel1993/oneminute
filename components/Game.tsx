@@ -8,6 +8,17 @@ type Phase='ready'|'countdown'|'playing'|'result';
 type Session={sessionId:string;seed:number;duration:number;ranked:boolean;displayName:string;usage?:{freeRemaining:number;creditUsed:boolean;credits:number}};
 type RankedResult={score:number;rank?:number;percentile?:number;worldRecord?:boolean;nextTarget?:{score:number;rank:number;hitsNeeded:number}|null};
 type Submit={ranked:boolean;reason?:string;result?:RankedResult|null};
+type NavigatorWithAudioSession=Navigator&{audioSession?:{type:string}};
+
+// Tiny PCM click used only as the iOS HTML-media fallback. Web Audio can be
+// completely silent on iPhone while normal media (for example YouTube) still
+// works, especially when the phone is in Silent Mode. HTMLAudioElement is
+// routed through the media playback path instead.
+const IOS_TONE='data:audio/wav;base64,UklGRgQCAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YeABAAAAAK0AUQLyA20E9gKD/+n6rPaB9Kr1cvrnAQwKVxCEElcPIgfY+5PwwegR55TsRPgpB0UUohtFG1kTIwZa9xnrw+QJ5n/uuvsDCmIVuBqYGKwPfwLD9Efq7OXW6CTyMv9VDOsVVRmwFRMMOP+38gbqhefS66z1RQIbDucVixelEqMIWvw38U3qeunm7v/46gRVD2EVbxWOD3AF8PlC8A7rt+v88Q78FwcGEGkUFxOADIoCAvjS7znsJu789Mj+xgg1EA4TlxCRCQAAkfbh77/tsfDV9x8B9wnsD2MRBQ7UBt39oPVi8IrvQ/Ny+gwDqwo3D3sPeAtaBCj8KfVI8YnxyPXG/IgE5gokDmwNAgkwAub6J/WC8qXzKvjC/pAFsgrGDEkLtwZjABj6j/UB9Mr1WfpdACQGGQotCycJpwT8/rz5Vvav9eT3RvyQAUkGKAltCRkH4gL//cz5bPd79+D54f1XAgYG7webBzMFcgFt/UD6wvhP+az7Iv+zAmQFgQbKBYUDYgBH/Qz7RvoY+zj9AAClAnAE7gQNBB4CuP+H/ST84/vE/Hf+dwA0AjkDSgN3AgkBdP8m/nf9iP1B/l//hwBqAc4BqgEYAVEAl/8a//T+IP9+/+b/MgBQAEMAHwA=';
+
+function isIOSDevice(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+}
 
 export function Game({challengeId}:{challengeId?:string}){
   const[phase,setPhase]=useState<Phase>('ready');
@@ -29,8 +40,25 @@ export function Game({challengeId}:{challengeId?:string}){
   const lastUrgentSecond=useRef(11);
   const arenaRef=useRef<HTMLDivElement>(null);
   const audioRef=useRef<AudioContext|null>(null);
+  const mediaAudioRef=useRef<HTMLAudioElement|null>(null);
   const score=events.filter(e=>e.type==='hit').length;
   const urgentSecond=remaining<=10000&&remaining>0?Math.ceil(remaining/1000):null;
+
+  const configurePlaybackSession=useCallback(()=>{
+    try{
+      const audioSession=(navigator as NavigatorWithAudioSession).audioSession;
+      if(audioSession)audioSession.type='playback';
+    }catch{}
+  },[]);
+
+  const getMediaAudio=useCallback(()=>{
+    if(mediaAudioRef.current)return mediaAudioRef.current;
+    const audio=new Audio(IOS_TONE);
+    audio.preload='auto';
+    audio.volume=.18;
+    mediaAudioRef.current=audio;
+    return audio;
+  },[]);
 
   const getAudioContext=useCallback(()=>{
     const C=window.AudioContext||(window as typeof window&{webkitAudioContext:typeof AudioContext}).webkitAudioContext;
@@ -50,27 +78,44 @@ export function Game({challengeId}:{challengeId?:string}){
 
   const unlockAudio=useCallback(async()=>{
     try{
+      configurePlaybackSession();
+      if(isIOSDevice()){
+        const audio=getMediaAudio();
+        const normalVolume=audio.volume||.18;
+        audio.pause();audio.currentTime=0;audio.volume=.001;
+        try{await audio.play()}catch{}
+        audio.pause();audio.currentTime=0;audio.volume=normalVolume;
+        return;
+      }
       const c=getAudioContext();
       const resumePromise=c.state==='suspended'?c.resume():Promise.resolve();
-      // Queue a near-silent source while still inside the user's tap. This primes
-      // Web Audio on iOS/WebKit before any network await breaks gesture activation.
       const o=c.createOscillator(),g=c.createGain();
       o.frequency.value=1;
       g.gain.setValueAtTime(.00001,c.currentTime);
       o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.02);
       await resumePromise;
     }catch{}
-  },[getAudioContext]);
+  },[configurePlaybackSession,getMediaAudio,getAudioContext]);
 
   const playSound=useCallback((f:number,d=.05)=>{
     if(muted)return;
     try{
+      configurePlaybackSession();
+      if(isIOSDevice()){
+        const audio=getMediaAudio();
+        audio.pause();
+        audio.currentTime=0;
+        audio.playbackRate=Math.max(.65,Math.min(1.8,f/680));
+        audio.volume=.18;
+        void audio.play().catch(()=>{});
+        return;
+      }
       const c=getAudioContext();
       const emit=()=>emitTone(c,f,d);
       if(c.state==='suspended')void c.resume().then(emit).catch(()=>{});
       else emit();
     }catch{}
-  },[muted,getAudioContext,emitTone]);
+  },[muted,configurePlaybackSession,getMediaAudio,getAudioContext,emitTone]);
 
   const finish=useCallback(async()=>{
     if(finishing.current||!session)return;
@@ -119,8 +164,11 @@ export function Game({challengeId}:{challengeId?:string}){
 
   useEffect(()=>{
     const resumeAudio=()=>{
+      if(muted||document.visibilityState!=='visible')return;
+      configurePlaybackSession();
+      if(isIOSDevice())return;
       const c=audioRef.current;
-      if(!muted&&document.visibilityState==='visible'&&c?.state==='suspended')void c.resume().catch(()=>{});
+      if(c?.state==='suspended')void c.resume().catch(()=>{});
     };
     document.addEventListener('visibilitychange',resumeAudio);
     window.addEventListener('pageshow',resumeAudio);
@@ -128,13 +176,11 @@ export function Game({challengeId}:{challengeId?:string}){
       document.removeEventListener('visibilitychange',resumeAudio);
       window.removeEventListener('pageshow',resumeAudio);
     };
-  },[muted]);
+  },[muted,configurePlaybackSession]);
 
   async function begin(){
     if(starting)return;
     setStarting(true);
-    // iPhone Chrome and Safari both run on WebKit. Audio must be unlocked from
-    // this physical START/PLAY AGAIN tap, before the session-start fetch.
     if(!muted)await unlockAudio();
     finishing.current=false;
     lastUrgentSecond.current=11;
