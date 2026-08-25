@@ -4,17 +4,23 @@ import { eq } from 'drizzle-orm';
 import { cookies, headers } from 'next/headers';
 import { getDb, hasDb } from './db';
 import { players } from './db/schema';
+import { isAllowedDisplayName } from './moderation';
 
 const adjectives = ['Electric', 'Rapid', 'Neon', 'Turbo', 'Lucky', 'Brisk'];
 const nouns = ['Mantis', 'Panda', 'Falcon', 'Gecko', 'Otter', 'Cobra'];
 
 function playerCookieSecret() {
-  return (
+  const configured =
     process.env.PLAYER_COOKIE_SECRET ??
     process.env.CLERK_SECRET_KEY ??
     process.env.STRIPE_WEBHOOK_SECRET ??
-    'oneminute-local-player-cookie-key'
-  );
+    process.env.DATABASE_URL;
+
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('PLAYER_COOKIE_SECRET_NOT_CONFIGURED');
+  }
+  return 'oneminute-local-player-cookie-key';
 }
 
 function signPlayerId(id: string) {
@@ -78,7 +84,8 @@ export async function identity(requestedName?: string) {
 
   let generatedName = `${adjectives[parseInt(id.slice(0, 2), 36) % adjectives.length]} ${nouns[parseInt(id.slice(-2), 36) % nouns.length]}`;
   let credits = 0;
-  const chosen = requestedName ? cleanDisplayName(requestedName) : '';
+  const cleaned = requestedName ? cleanDisplayName(requestedName) : '';
+  const chosen = cleaned.length >= 2 && isAllowedDisplayName(cleaned) ? cleaned : '';
   const userId = await signedInUserId();
 
   if (hasDb()) {
@@ -89,9 +96,12 @@ export async function identity(requestedName?: string) {
       const [account] = await db.select().from(players).where(eq(players.clerkUserId, userId)).limit(1);
       if (account) {
         id = account.id;
-        generatedName = account.displayName;
+        generatedName = isAllowedDisplayName(account.displayName) ? account.displayName : generatedName;
         credits = account.credits;
         rememberPlayer(jar, id);
+        if (generatedName !== account.displayName) {
+          await db.update(players).set({ displayName: generatedName }).where(eq(players.id, id));
+        }
       } else {
         await db.update(players).set({ clerkUserId: userId }).where(eq(players.id, id));
         const [claimed] = await db.select().from(players).where(eq(players.id, id)).limit(1);
@@ -101,6 +111,7 @@ export async function identity(requestedName?: string) {
 
     if (chosen.length >= 2) {
       await db.update(players).set({ displayName: chosen }).where(eq(players.id, id));
+      generatedName = chosen;
     } else {
       const [current] = await db
         .select({ displayName: players.displayName, credits: players.credits })
@@ -108,8 +119,12 @@ export async function identity(requestedName?: string) {
         .where(eq(players.id, id))
         .limit(1);
       if (current) {
-        generatedName = current.displayName;
+        const safeCurrent = isAllowedDisplayName(current.displayName) ? current.displayName : generatedName;
+        generatedName = safeCurrent;
         credits = current.credits;
+        if (safeCurrent !== current.displayName) {
+          await db.update(players).set({ displayName: safeCurrent }).where(eq(players.id, id));
+        }
       }
     }
   }
@@ -147,4 +162,3 @@ export function seed() {
 export function fingerprint(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
-
