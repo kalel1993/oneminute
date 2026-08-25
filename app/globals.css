@@ -328,6 +328,10 @@ footer {
   color: var(--paper);
   border: 1px solid #555;
 }
+.actions .accountAction {
+  border-color: var(--acid);
+  box-shadow: 0 0 14px #c9ff1844;
+}
 .notice {
   border-left: 5px solid var(--acid);
   padding: 12px 16px;
@@ -337,6 +341,30 @@ footer {
 .notice a {
   color: var(--acid);
   font-weight: 900;
+}
+.accountCta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin-left: 8px;
+  padding: 8px 16px;
+  background: var(--acid);
+  color: var(--ink) !important;
+  font-weight: 950;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 3px #c9ff1833, 0 0 22px #c9ff1866;
+  animation: accountPulse 1.6s ease-in-out infinite;
+}
+.accountCta:hover,
+.accountCta:focus-visible {
+  box-shadow: 0 0 0 4px #c9ff1855, 0 0 32px #c9ff18aa;
+}
+@keyframes accountPulse {
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 5px #c9ff1844, 0 0 32px #c9ff18aa;
+  }
 }
 .playLinks {
   display: flex;
@@ -534,6 +562,10 @@ footer {
     width: 100%;
     max-width: none;
   }
+  .accountCta {
+    margin-top: 10px;
+    margin-left: 0;
+  }
   footer {
     gap: 20px;
   }
@@ -554,5 +586,8 @@ footer {
     scroll-behavior: auto !important;
     animation: none !important;
     transition: none !important;
+  }
+  .accountCta {
+    animation: none;
   }
 }
