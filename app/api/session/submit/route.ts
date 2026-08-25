@@ -67,7 +67,8 @@ export async function POST(req: Request) {
   }
 
   const elapsed = Date.now() - session.startedAt.getTime();
-  const result = validateTrace(session.seed, body.data.events, elapsed);
+  const validationMode = session.mode === 'touch' ? 'touch' : 'mouse';
+  const result = validateTrace(session.seed, body.data.events, elapsed, validationMode);
   const v2ModeFilter = and(
     eq(sessions.valid, true),
     eq(sessions.mode, session.mode),

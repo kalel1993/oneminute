@@ -1,6 +1,6 @@
-import { activeTargetCount, GameEvent, stats, targetAt } from './engine';
+import { activeTargetCount, GameEvent, Mode, stats, targetAt } from './engine';
 
-export function validateTrace(seed: number, events: GameEvent[], elapsed: number) {
+export function validateTrace(seed: number, events: GameEvent[], elapsed: number, mode: Mode = 'mouse') {
   const reasons: string[] = [];
   if (elapsed < 59500 || elapsed > 75000) reasons.push('invalid duration');
   if (events.length > 500) reasons.push('event limit');
@@ -29,7 +29,10 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
       } else {
         const target = targetAt(seed, targetId, generations[targetId], event.t);
         const distance = Math.hypot(event.x - target.x, event.y - target.y);
-        const allowedDistance = Math.max(2.8, target.r + 1.0);
+        const touchFloor = active >= 4 ? 5.4 : active === 2 ? 5.0 : 4.8;
+        const allowedDistance = mode === 'touch'
+          ? Math.max(touchFloor, target.r + 1.2)
+          : Math.max(2.8, target.r + 1.0);
         if (distance > allowedDistance) reasons.push('hit outside target');
         generations[targetId] += 1;
         hitOffsets.push(distance);

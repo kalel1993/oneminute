@@ -8,8 +8,11 @@ export default function Home(){
     <section className="hero">
       <p className="kicker">01 GAME · 60 SECONDS · NO SIGNUP</p>
       <h1>HOW FAST<br/>ARE <i>YOU?</i></h1>
-      <p className="lede">You have 60 seconds. One button. No excuses.</p>
-      <Link className="megaButton" href="/play">PLAY <span>→</span></Link>
+      <p className="lede">You have 60 seconds. One target becomes four. No excuses.</p>
+      <div className="heroActions">
+        <Link className="megaButton" href="/play">PLAY <span>→</span></Link>
+        <Link className="megaButton secondaryMega" href="/leaderboard">LEADERBOARD <span>↗</span></Link>
+      </div>
       <p className="fine">Touch or mouse. Anonymous. Your reflexes do the talking.</p>
     </section>
     <PublicData/>
