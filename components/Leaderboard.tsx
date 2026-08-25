@@ -5,7 +5,7 @@ type Row={name:string;score:number};
 
 export function Leaderboard(){
   const[mode,setMode]=useState<'touch'|'mouse'>('touch');
-  const[period,setPeriod]=useState<'today'|'all'>('today');
+  const[period,setPeriod]=useState<'today'|'all'>('all');
   const[rows,setRows]=useState<Row[]|null>(null);
   const[configured,setConfigured]=useState(true);
   const[updated,setUpdated]=useState('');
