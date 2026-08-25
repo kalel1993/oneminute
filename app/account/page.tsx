@@ -1,0 +1,3 @@
+import {auth} from '@clerk/nextjs/server';import {redirect} from 'next/navigation';import {Header} from '@/components/Header';import {AccountDashboard} from '@/components/AccountDashboard';
+export const metadata={title:'Your account'};
+export default async function Page({searchParams}:{searchParams:Promise<{checkout?:string;session_id?:string}>}){if(!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)return <main><Header/><section className="account"><h1>ACCOUNT</h1><p>Login is being connected. Please try again shortly.</p></section></main>;if(!(await auth()).userId)redirect('/sign-in');const query=await searchParams;return <main><Header/><AccountDashboard checkout={query.checkout} sessionId={query.session_id}/></main>}
