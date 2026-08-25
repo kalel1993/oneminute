@@ -1,2 +1,48 @@
-import {GameEvent,targetAt,stats} from './engine';
-export function validateTrace(seed:number,events:GameEvent[],elapsed:number){const reasons:string[]=[];if(elapsed<59500||elapsed>75000)reasons.push('invalid duration');if(events.length>500)reasons.push('event limit');let prior=-1,hits=0,lastHit=-1000;for(const e of events){if(e.t<prior||e.t<0||e.t>60500)reasons.push('non-monotonic timing');prior=e.t;if(e.x<0||e.x>100||e.y<0||e.y>100)reasons.push('invalid coordinates');if(e.type==='hit'){const target=targetAt(seed,hits);const distance=Math.hypot(e.x-target.x,e.y-target.y);if(distance>12)reasons.push('hit outside target');if(e.t-lastHit<45)reasons.push('implausible hit rate');lastHit=e.t;hits++}}return{valid:reasons.length===0,reasons:[...new Set(reasons)],...stats(events)}}
+import { GameEvent, stats, targetAt } from './engine';
+
+export function validateTrace(seed: number, events: GameEvent[], elapsed: number) {
+  const reasons: string[] = [];
+  if (elapsed < 59500 || elapsed > 75000) reasons.push('invalid duration');
+  if (events.length > 500) reasons.push('event limit');
+
+  let prior = -1;
+  let hits = 0;
+  let lastHit = -1000;
+  const hitTimes: number[] = [];
+
+  for (const event of events) {
+    if (event.t < prior || event.t < 0 || event.t > 60500) reasons.push('non-monotonic timing');
+    if (event.t > elapsed + 1500) reasons.push('timing exceeds elapsed duration');
+    prior = event.t;
+
+    if (event.x < 0 || event.x > 100 || event.y < 0 || event.y > 100) {
+      reasons.push('invalid coordinates');
+    }
+
+    if (event.type === 'hit') {
+      const target = targetAt(seed, hits);
+      const distance = Math.hypot(event.x - target.x, event.y - target.y);
+      if (distance > 12) reasons.push('hit outside target');
+      if (event.t < 75 || event.t - lastHit < 45) reasons.push('implausible hit rate');
+      lastHit = event.t;
+      hitTimes.push(event.t);
+      hits += 1;
+    }
+  }
+
+  if (hits > 300) reasons.push('implausible score');
+  if (hitTimes.length >= 25) {
+    const intervals = hitTimes.slice(1).map((time, index) => time - hitTimes[index]);
+    const frequencies = new Map<number, number>();
+    for (const interval of intervals) frequencies.set(interval, (frequencies.get(interval) ?? 0) + 1);
+    const repeated = Math.max(...frequencies.values());
+    const mean = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+    const deviation = Math.sqrt(
+      intervals.reduce((sum, interval) => sum + (interval - mean) ** 2, 0) / intervals.length,
+    );
+    if (repeated / intervals.length >= 0.8 || deviation < 1.5) reasons.push('machine-like timing');
+  }
+
+  return { valid: reasons.length === 0, reasons: [...new Set(reasons)], ...stats(events) };
+}
+

@@ -5,6 +5,7 @@ import { identity, sameOrigin, fingerprint, token } from '@/lib/server';
 import { getDb, hasDb } from '@/lib/db';
 import { activity, sessions, submissions } from '@/lib/db/schema';
 import { validateTrace } from '@/lib/game/validation';
+import { bodyWithinLimit, payloadTooLarge, rateLimitRequest } from '@/lib/protection';
 
 const event = z.object({
   type: z.enum(['hit', 'miss']),
@@ -17,6 +18,14 @@ export async function POST(req: Request) {
   if (!(await sameOrigin())) {
     return NextResponse.json({ error: 'Cross-origin request refused' }, { status: 403 });
   }
+  if (!bodyWithinLimit(req, 128 * 1024)) return payloadTooLarge();
+
+  const ipLimit = await rateLimitRequest(req, {
+    scope: 'session-submit-ip',
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (ipLimit) return ipLimit;
 
   const body = z
     .object({ sessionId: z.string().min(10), events: z.array(event).max(500) })
@@ -30,6 +39,13 @@ export async function POST(req: Request) {
   }
 
   const player = await identity();
+  const playerLimit = await rateLimitRequest(req, {
+    scope: 'session-submit-player',
+    identity: player.id,
+    limit: 12,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (playerLimit) return playerLimit;
   const db = getDb();
   const [session] = await db
     .select()
@@ -108,3 +124,4 @@ export async function POST(req: Request) {
     reasons: [],
   });
 }
+
