@@ -1,0 +1,1 @@
+import Link from 'next/link';export default function NotFound(){return <main className="result"><p className="kicker">404 · MISSED TARGET</p><h2>NOT<br/><span>HERE.</span></h2><Link className="action" href="/">BACK TO THE ARCADE</Link></main>}

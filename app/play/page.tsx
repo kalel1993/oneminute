@@ -1,0 +1,1 @@
+import type {Metadata} from 'next';import {Game} from '@/components/Game';export const metadata:Metadata={title:'Button Rush',robots:{index:false,follow:true}};export default async function Play({searchParams}:{searchParams:Promise<{challenge?:string}>}){const q=await searchParams;return <Game challengeId={q.challenge}/>}

@@ -1,0 +1,5 @@
+{
+  "name":"oneminute-lol","version":"1.0.0","private":true,"scripts":{"dev":"next dev","build":"next build","start":"next start","lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run","test:e2e":"playwright test"},
+  "dependencies":{"@neondatabase/serverless":"latest","@vercel/analytics":"latest","drizzle-orm":"latest","next":"latest","react":"latest","react-dom":"latest","zod":"latest"},
+  "devDependencies":{"@eslint/eslintrc":"latest","@playwright/test":"latest","@types/node":"latest","@types/react":"latest","@types/react-dom":"latest","eslint":"latest","eslint-config-next":"latest","typescript":"latest","vitest":"latest"}
+}
