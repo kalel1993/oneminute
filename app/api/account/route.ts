@@ -1,9 +1,11 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getDb, hasDb } from '@/lib/db';
 import { players, sessions } from '@/lib/db/schema';
-import { rateLimitRequest } from '@/lib/protection';
-import { identity } from '@/lib/server';
+import { isAllowedDisplayName } from '@/lib/moderation';
+import { bodyWithinLimit, payloadTooLarge, rateLimitRequest } from '@/lib/protection';
+import { cleanDisplayName, identity, sameOrigin } from '@/lib/server';
 
 export async function GET(req: Request) {
   const player = await identity();
@@ -61,3 +63,36 @@ export async function GET(req: Request) {
   });
 }
 
+export async function PATCH(req: Request) {
+  if (!(await sameOrigin())) {
+    return NextResponse.json({ error: 'Cross-origin request refused' }, { status: 403 });
+  }
+  if (!bodyWithinLimit(req, 2048)) return payloadTooLarge();
+
+  const player = await identity();
+  if (!player.signedIn) {
+    return NextResponse.json({ error: 'Log in to claim a leaderboard name.' }, { status: 401 });
+  }
+  const limited = await rateLimitRequest(req, {
+    scope: 'account-name-player',
+    identity: player.id,
+    limit: 8,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (limited) return limited;
+  if (!hasDb()) {
+    return NextResponse.json({ error: 'Account changes are temporarily unavailable.' }, { status: 503 });
+  }
+
+  const parsed = z.object({ displayName: z.string().min(2).max(20) }).safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Use 2–20 characters.' }, { status: 400 });
+  }
+  const displayName = cleanDisplayName(parsed.data.displayName);
+  if (displayName.length < 2 || !isAllowedDisplayName(displayName)) {
+    return NextResponse.json({ error: 'Choose a different leaderboard name.' }, { status: 400 });
+  }
+
+  await getDb().update(players).set({ displayName }).where(eq(players.id, player.id));
+  return NextResponse.json({ displayName });
+}
