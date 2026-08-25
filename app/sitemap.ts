@@ -1,0 +1,1 @@
+import type {MetadataRoute} from 'next';export default function sitemap():MetadataRoute.Sitemap{return['','/leaderboard'].map(path=>({url:`https://oneminute.lol${path}`,changeFrequency:path?'daily':'weekly',priority:path?0.8:1}))}

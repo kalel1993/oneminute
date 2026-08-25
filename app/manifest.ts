@@ -1,0 +1,1 @@
+import type {MetadataRoute} from 'next';export default function manifest():MetadataRoute.Manifest{return{name:'OneMinute.lol',short_name:'OneMinute',description:'A 60-second competitive micro-arcade.',start_url:'/',display:'standalone',background_color:'#0b0b0a',theme_color:'#c9ff18',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml'}]}}

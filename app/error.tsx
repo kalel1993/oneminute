@@ -1,0 +1,1 @@
+'use client';export default function Error({reset}:{reset:()=>void}){return <main className="result"><p className="kicker">OFF PACE</p><h2>THAT<br/><span>MISSED.</span></h2><p>Something broke. Your unverified run was not ranked.</p><button className="action" onClick={reset}>TRY AGAIN</button></main>}

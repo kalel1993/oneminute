@@ -1,0 +1,1 @@
+'use client';import Link from 'next/link';export default function GlobalError(){return <html><body><main className="result"><h1>ONE BAD SECOND.</h1><p>Reload to get back in the game.</p><Link className="action" href="/">RELOAD</Link></main></body></html>}

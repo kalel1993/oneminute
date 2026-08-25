@@ -1,0 +1,1 @@
+import {Header} from '@/components/Header';import {Leaderboard} from '@/components/Leaderboard';export const metadata={title:'Leaderboard'};export default function Page(){return <main><Header/><section className="leader"><p className="kicker">VERIFIED SPEED · UTC</p><h1>THE<br/><i>FASTEST.</i></h1><Leaderboard/></section></main>}

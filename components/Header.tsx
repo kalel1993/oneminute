@@ -1,0 +1,1 @@
+import Link from 'next/link';export function Header(){return <header className="header"><Link className="wordmark" href="/">ONEMINUTE<span>.LOL</span></Link><nav aria-label="Primary"><Link href="/leaderboard">Leaderboard</Link><Link className="navPlay" href="/play">Play</Link></nav></header>}

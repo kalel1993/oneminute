@@ -1,0 +1,4 @@
+import {test,expect} from '@playwright/test';
+test('landing starts Button Rush countdown',async({page})=>{await page.goto('/');await expect(page.getByRole('heading',{name:/how fast/i})).toBeVisible();await page.getByRole('link',{name:/play/i}).first().click();await page.getByRole('button',{name:/start 60 seconds/i}).click();await expect(page.getByText('3',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Hit target'})).toBeVisible({timeout:5000})});
+test('leaderboard tells the truth when empty',async({page})=>{await page.goto('/leaderboard');await expect(page.getByText(/board is wide open|loading the pace/i)).toBeVisible();await expect(page.getByRole('button',{name:'ALL TIME'})).toBeVisible()});
+test('unknown challenge has a resilient landing',async({page})=>{await page.goto('/c/not-real');await expect(page.getByText(/rankings offline|not here/i)).toBeVisible()});
