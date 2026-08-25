@@ -32,20 +32,45 @@ export function Game({challengeId}:{challengeId?:string}){
   const score=events.filter(e=>e.type==='hit').length;
   const urgentSecond=remaining<=10000&&remaining>0?Math.ceil(remaining/1000):null;
 
+  const getAudioContext=useCallback(()=>{
+    const C=window.AudioContext||(window as typeof window&{webkitAudioContext:typeof AudioContext}).webkitAudioContext;
+    const c=audioRef.current??new C();
+    audioRef.current=c;
+    return c;
+  },[]);
+
+  const emitTone=useCallback((c:AudioContext,f:number,d=.05)=>{
+    if(c.state==='closed')return;
+    const o=c.createOscillator(),g=c.createGain();
+    o.frequency.value=f;
+    g.gain.setValueAtTime(.035,c.currentTime);
+    o.connect(g);g.connect(c.destination);o.start();
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d);o.stop(c.currentTime+d);
+  },[]);
+
+  const unlockAudio=useCallback(async()=>{
+    try{
+      const c=getAudioContext();
+      const resumePromise=c.state==='suspended'?c.resume():Promise.resolve();
+      // Queue a near-silent source while still inside the user's tap. This primes
+      // Web Audio on iOS/WebKit before any network await breaks gesture activation.
+      const o=c.createOscillator(),g=c.createGain();
+      o.frequency.value=1;
+      g.gain.setValueAtTime(.00001,c.currentTime);
+      o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.02);
+      await resumePromise;
+    }catch{}
+  },[getAudioContext]);
+
   const playSound=useCallback((f:number,d=.05)=>{
     if(muted)return;
     try{
-      const C=window.AudioContext||(window as typeof window&{webkitAudioContext:typeof AudioContext}).webkitAudioContext;
-      const c=audioRef.current??new C();
-      audioRef.current=c;
-      if(c.state==='suspended')void c.resume();
-      const o=c.createOscillator(),g=c.createGain();
-      o.frequency.value=f;
-      g.gain.value=.035;
-      o.connect(g);g.connect(c.destination);o.start();
-      g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d);o.stop(c.currentTime+d);
+      const c=getAudioContext();
+      const emit=()=>emitTone(c,f,d);
+      if(c.state==='suspended')void c.resume().then(emit).catch(()=>{});
+      else emit();
     }catch{}
-  },[muted]);
+  },[muted,getAudioContext,emitTone]);
 
   const finish=useCallback(async()=>{
     if(finishing.current||!session)return;
@@ -92,9 +117,25 @@ export function Game({challengeId}:{challengeId?:string}){
     return()=>observer.disconnect();
   },[phase]);
 
+  useEffect(()=>{
+    const resumeAudio=()=>{
+      const c=audioRef.current;
+      if(!muted&&document.visibilityState==='visible'&&c?.state==='suspended')void c.resume().catch(()=>{});
+    };
+    document.addEventListener('visibilitychange',resumeAudio);
+    window.addEventListener('pageshow',resumeAudio);
+    return()=>{
+      document.removeEventListener('visibilitychange',resumeAudio);
+      window.removeEventListener('pageshow',resumeAudio);
+    };
+  },[muted]);
+
   async function begin(){
     if(starting)return;
     setStarting(true);
+    // iPhone Chrome and Safari both run on WebKit. Audio must be unlocked from
+    // this physical START/PLAY AGAIN tap, before the session-start fetch.
+    if(!muted)await unlockAudio();
     finishing.current=false;
     lastUrgentSecond.current=11;
     eventsRef.current=[];
@@ -114,6 +155,13 @@ export function Game({challengeId}:{challengeId?:string}){
       startRef.current=performance.now();
       setRemaining(s.duration);setTarget(targetAt(s.seed,0,0));setPhase('playing');
     }finally{setStarting(false)}
+  }
+
+  async function toggleSound(){
+    if(muted){
+      setMuted(false);
+      await unlockAudio();
+    }else setMuted(true);
   }
 
   function hit(e:React.PointerEvent<HTMLButtonElement>){
@@ -177,7 +225,7 @@ export function Game({challengeId}:{challengeId?:string}){
     const minArena=Math.min(arenaSize.w||700,arenaSize.h||700);
     const targetPixels=target?Math.max(28,Math.min(96,minArena*target.r*.02)):72;
     return <main className={`gameShell${urgentSecond!==null?' finalTen':''}`}>
-      <div className="hud"><div><label>SCORE</label><strong>{score}</strong></div><div className="timeReadout"><label>{urgentSecond!==null?'FINAL TEN':'TIME'}</label><strong>{(remaining/1000).toFixed(1)}</strong></div><button onClick={()=>setMuted(v=>!v)} aria-label={muted?'Unmute sounds':'Mute sounds'}>{muted?'SOUND OFF':'SOUND ON'}</button></div>
+      <div className="hud"><div><label>SCORE</label><strong>{score}</strong></div><div className="timeReadout"><label>{urgentSecond!==null?'FINAL TEN':'TIME'}</label><strong>{(remaining/1000).toFixed(1)}</strong></div><button onClick={()=>void toggleSound()} aria-label={muted?'Unmute sounds':'Mute sounds'}>{muted?'SOUND OFF':'SOUND ON'}</button></div>
       {urgentSecond!==null&&<div className="urgentCountdown" aria-live="assertive" aria-atomic="true"><span>{urgentSecond}</span><b>SECONDS</b></div>}
       <div ref={arenaRef} className="arena" onPointerDown={miss}>{target&&<button aria-label="Hit target" className="target" onPointerDown={hit} style={{left:`${target.x}%`,top:`${target.y}%`,width:`${targetPixels}px`,height:`${targetPixels}px`}}>HIT</button>}</div>
     </main>;
