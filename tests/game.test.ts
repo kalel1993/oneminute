@@ -54,23 +54,37 @@ describe('anti-cheat validation',()=>{
     ],60000);
     expect(result.valid).toBe(true);
   });
-  it('allows the wider finger hit area on touch without widening mouse validation',()=>{
+  it('allows near-simultaneous Quad hits on different targets',()=>{
+    const hits=[0,1,2,3].map((id,index)=>{
+      const t=50000+index*5;
+      const target=targetAt(17,id,0,t);
+      return{type:'hit' as const,t,x:target.x,y:target.y,targetId:id};
+    });
+    expect(validateTrace(17,hits,60000,'touch').valid).toBe(true);
+  });
+  it('allows the full mobile finger hit area without widening mouse validation',()=>{
     const target=targetAt(11,2,0,52000);
-    const edgeHit={type:'hit' as const,t:52000,x:target.x+4.7,y:target.y,targetId:2};
+    const edgeHit={type:'hit' as const,t:52000,x:target.x+7.1,y:target.y,targetId:2};
     expect(validateTrace(11,[edgeHit],60000,'touch').valid).toBe(true);
     expect(validateTrace(11,[edgeHit],60000,'mouse').reasons).toContain('hit outside target');
   });
-  it('rejects inactive target ids, short sessions, nonmonotonic traces and impossible speed',()=>{
-    const a=targetAt(8,0,0,200);
+  it('rejects an impossibly fast repeat on the same target',()=>{
+    const a=targetAt(18,0,0,50000);
+    const b=targetAt(18,0,1,50010);
+    const result=validateTrace(18,[
+      {type:'hit',t:50000,x:a.x,y:a.y,targetId:0},
+      {type:'hit',t:50010,x:b.x,y:b.y,targetId:0},
+    ],60000,'touch');
+    expect(result.reasons).toContain('implausible hit rate');
+  });
+  it('rejects inactive target ids, short sessions and nonmonotonic traces',()=>{
     const r=validateTrace(8,[
-      {type:'hit',t:200,x:a.x,y:a.y,targetId:1},
-      {type:'hit',t:210,x:0,y:0,targetId:0},
+      {type:'hit',t:200,x:0,y:0,targetId:1},
       {type:'miss',t:100,x:101,y:0},
     ],1000);
     expect(r.valid).toBe(false);
     expect(r.reasons).toContain('invalid duration');
     expect(r.reasons).toContain('invalid target id');
-    expect(r.reasons).toContain('implausible hit rate');
     expect(r.reasons).toContain('non-monotonic timing');
   });
 });
