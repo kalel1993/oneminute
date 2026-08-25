@@ -1,7 +1,7 @@
 import { activeTargetCount, GameEvent, Mode, stats, targetAt } from './engine';
 
 const STAGE_BOUNDARIES=[30000,40000];
-const BOUNDARY_GRACE_MS=120;
+const BOUNDARY_GRACE_MS=250;
 
 export function validateTrace(seed: number, events: GameEvent[], elapsed: number, mode: Mode = 'mouse') {
   const reasons: string[] = [];
@@ -10,8 +10,8 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
 
   let prior = -1;
   let hits = 0;
-  let lastHit = -1000;
   const generations = [0, 0, 0, 0];
+  const lastHitByTarget = [-1000, -1000, -1000, -1000];
   const hitTimes: number[] = [];
   const hitOffsets: number[] = [];
 
@@ -47,27 +47,32 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
           const candidateDistance=Math.hypot(event.x-target.x,event.y-target.y);
           if(candidateDistance<distance){distance=candidateDistance;radius=target.r}
         }
-        const touchFloor = active >= 4 ? 6.4 : active === 2 ? 6.0 : 5.8;
+
+        // The phone UI deliberately uses a ~40px finger hit area around the
+        // visible target. Coordinates are submitted as arena percentages, so
+        // a slightly wider radial allowance is required on tall mobile arenas
+        // to represent that same physical hit box without false negatives.
         const allowedDistance = mode === 'touch'
-          ? Math.max(touchFloor, radius + 1.4)
+          ? Math.max(7.6, radius + 1.8)
           : Math.max(2.8, radius + 1.0);
         if (distance > allowedDistance) reasons.push('hit outside target');
+
+        // Quad mode supports different fingers hitting different targets at
+        // nearly the same time. Only an impossibly fast repeat on the SAME
+        // target is structurally suspicious.
+        if(event.t-lastHitByTarget[targetId]<20)reasons.push('implausible hit rate');
+        lastHitByTarget[targetId]=event.t;
+
         generations[targetId] += 1;
         hitOffsets.push(distance);
       }
-      if (event.t < 60) reasons.push('implausible hit rate');
-      lastHit = event.t;
+      if (event.t < 20) reasons.push('implausible hit rate');
       hitTimes.push(event.t);
       hits += 1;
     }
   }
 
   if (hits > 320) reasons.push('implausible score');
-  if (hitTimes.length >= 2) {
-    const intervals = hitTimes.slice(1).map((time, index) => time - hitTimes[index]);
-    const ultraFast=intervals.filter(interval=>interval<30).length;
-    if(ultraFast>=4&&ultraFast/intervals.length>=0.08)reasons.push('implausible hit rate');
-  }
 
   if (hitTimes.length >= 25) {
     const intervals = hitTimes.slice(1).map((time, index) => time - hitTimes[index]);
@@ -78,10 +83,13 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
     const deviation = Math.sqrt(
       intervals.reduce((sum, interval) => sum + (interval - mean) ** 2, 0) / intervals.length,
     );
-    if (repeated / intervals.length >= 0.8 || deviation < 1.5) reasons.push('machine-like timing');
 
-    const nearPerfect = hitOffsets.filter(offset => offset < 0.08).length;
-    if (hitOffsets.length >= 25 && nearPerfect / hitOffsets.length >= 0.9) reasons.push('machine-like targeting');
+    // Keep only extremely strong automation signals. Fast multi-touch itself
+    // is valid gameplay and must never be enough to reject a run.
+    if (repeated / intervals.length >= 0.95 && deviation < 0.5) reasons.push('machine-like timing');
+
+    const nearPerfect = hitOffsets.filter(offset => offset < 0.03).length;
+    if (hitOffsets.length >= 25 && nearPerfect / hitOffsets.length >= 0.98) reasons.push('machine-like targeting');
   }
 
   return { valid: reasons.length === 0, reasons: [...new Set(reasons)], ...stats(events) };
