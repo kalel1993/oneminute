@@ -1,80 +1,78 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
-import { NextResponse } from 'next/server';
-import { getDb, hasDb } from '@/lib/db';
-import { activity, players, sessions } from '@/lib/db/schema';
-import { BUTTON_RUSH_V2_STARTED_AT, BUTTON_RUSH_VERSION } from '@/lib/game/version';
-import { rateLimitRequest } from '@/lib/protection';
+import {and,desc,eq,gte,sql} from 'drizzle-orm';
+import {NextResponse} from 'next/server';
+import {getDb,hasDb} from '@/lib/db';
+import {activity,players,sessions} from '@/lib/db/schema';
+import {repairRecentV2Runs} from '@/lib/game/repair';
+import {BUTTON_RUSH_VERSION} from '@/lib/game/version';
+import {ensurePresenceSchema} from '@/lib/presence';
+import {rateLimitRequest} from '@/lib/protection';
 
-export async function GET(req: Request) {
-  const limited = await rateLimitRequest(req, {
-    scope: 'public-leaderboard-ip',
-    limit: 120,
-    windowMs: 60 * 1000,
-  });
-  if (limited) return limited;
+export async function GET(req:Request){
+  const limited=await rateLimitRequest(req,{scope:'public-leaderboard-ip',limit:120,windowMs:60*1000});
+  if(limited)return limited;
 
-  if (!hasDb()) {
+  if(!hasDb()){
     return NextResponse.json(
-      { configured: false, leaders: [], activity: [], viewer: null, gameVersion: BUTTON_RUSH_VERSION },
-      { headers: { 'Cache-Control': 'no-store' } },
+      {configured:false,leaders:[],activity:[],viewer:null,gameVersion:BUTTON_RUSH_VERSION,totalVisitors:0,liveVisitors:0},
+      {headers:{'Cache-Control':'no-store'}},
     );
   }
 
-  const url = new URL(req.url);
-  const mode = url.searchParams.get('mode') === 'mouse' ? 'mouse' : 'touch';
-  const period = url.searchParams.get('period') === 'all' ? 'all' : 'today';
-  const dayStart = new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const periodStart = period === 'today' && dayStart > BUTTON_RUSH_V2_STARTED_AT
-    ? dayStart
-    : BUTTON_RUSH_V2_STARTED_AT;
-  const where = and(
-    eq(sessions.valid, true),
-    eq(sessions.mode, mode),
-    gte(sessions.startedAt, periodStart),
-  );
-  const bestScore = sql<number>`max(${sessions.score})`.as('best_score');
+  await Promise.all([ensurePresenceSchema(),repairRecentV2Runs()]);
 
-  const [leaders, feed] = await Promise.all([
+  const url=new URL(req.url);
+  const mode=url.searchParams.get('mode')==='mouse'?'mouse':'touch';
+  const period=url.searchParams.get('period')==='all'?'all':'today';
+  const dayStart=new Date();
+  dayStart.setUTCHours(0,0,0,0);
+  const where=period==='today'
+    ?and(eq(sessions.valid,true),eq(sessions.mode,mode),gte(sessions.startedAt,dayStart))
+    :and(eq(sessions.valid,true),eq(sessions.mode,mode));
+  const bestScore=sql<number>`max(${sessions.score})`.as('best_score');
+  const liveSince=new Date(Date.now()-90_000);
+
+  const [leaders,feed,totalRows,liveRows]=await Promise.all([
     getDb()
-      .select({ name: players.displayName, score: bestScore })
+      .select({name:players.displayName,score:bestScore})
       .from(sessions)
-      .innerJoin(players, eq(players.id, sessions.playerId))
+      .innerJoin(players,eq(players.id,sessions.playerId))
       .where(where)
-      .groupBy(players.id, players.displayName)
-      .orderBy(desc(bestScore))
-      .limit(50),
+      .groupBy(players.id,players.displayName)
+      .orderBy(desc(bestScore)),
     getDb()
-      .select({ name: players.displayName, score: activity.score, at: activity.createdAt, kind: activity.kind })
+      .select({name:players.displayName,score:activity.score,at:activity.createdAt,kind:activity.kind})
       .from(activity)
-      .innerJoin(players, eq(players.id, activity.playerId))
-      .where(gte(activity.createdAt, BUTTON_RUSH_V2_STARTED_AT))
+      .innerJoin(players,eq(players.id,activity.playerId))
       .orderBy(desc(activity.createdAt))
       .limit(8),
+    getDb().select({count:sql<number>`count(*)::int`}).from(players),
+    getDb().select({count:sql<number>`count(*)::int`}).from(players).where(gte(players.lastSeenAt,liveSince)),
   ]);
 
-  const record = leaders[0]?.score ?? null;
-  const topTenScores = new Set(leaders.slice(0, 10).map(row => row.score));
-  const narrative = feed.map(item => {
-    const activityMode = item.kind.includes(':') ? item.kind.split(':')[1] : null;
-    let message = `${item.name} just scored ${item.score ?? 0}`;
-    if (activityMode === mode && item.score != null && record != null && item.score === record) {
-      message = `${item.name} holds the V2 pace at ${item.score}`;
-    } else if (activityMode === mode && item.score != null && topTenScores.has(item.score)) {
-      message = `${item.name} entered the V2 Top 10 with ${item.score}`;
+  const record=leaders[0]?.score??null;
+  const topTenScores=new Set(leaders.slice(0,10).map(row=>row.score));
+  const narrative=feed.map(item=>{
+    const activityMode=item.kind.includes(':')?item.kind.split(':')[1]:null;
+    let message=`${item.name} just scored ${item.score??0}`;
+    if(activityMode===mode&&item.score!=null&&record!=null&&item.score===record){
+      message=`${item.name} holds the current pace at ${item.score}`;
+    }else if(activityMode===mode&&item.score!=null&&topTenScores.has(item.score)){
+      message=`${item.name} entered the Top 10 with ${item.score}`;
     }
-    return { ...item, mode: activityMode, message };
+    return{...item,mode:activityMode,message};
   });
 
   return NextResponse.json(
     {
-      configured: true,
+      configured:true,
       leaders,
-      activity: narrative,
-      count: leaders.length,
-      gameVersion: BUTTON_RUSH_VERSION,
-      updatedAt: new Date().toISOString(),
+      activity:narrative,
+      count:leaders.length,
+      gameVersion:BUTTON_RUSH_VERSION,
+      totalVisitors:totalRows[0]?.count??0,
+      liveVisitors:liveRows[0]?.count??0,
+      updatedAt:new Date().toISOString(),
     },
-    { headers: { 'Cache-Control': 'no-store' } },
+    {headers:{'Cache-Control':'no-store'}},
   );
 }
