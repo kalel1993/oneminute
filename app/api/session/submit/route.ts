@@ -67,7 +67,7 @@ export async function POST(req: Request) {
   }
 
   const elapsed = Date.now() - session.startedAt.getTime();
-  const result = validateTrace(session.seed, body.data.events, elapsed);
+  const result = validateTrace(session.seed, body.data.events, elapsed, session.mode);
   const v2ModeFilter = and(
     eq(sessions.valid, true),
     eq(sessions.mode, session.mode),
