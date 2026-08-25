@@ -10,11 +10,8 @@ type RankedResult={score:number;rank?:number;percentile?:number;worldRecord?:boo
 type Submit={ranked:boolean;reason?:string;result?:RankedResult|null};
 type NavigatorWithAudioSession=Navigator&{audioSession?:{type:string}};
 
-// Tiny PCM click used only as the iOS HTML-media fallback. Web Audio can be
-// completely silent on iPhone while normal media (for example YouTube) still
-// works, especially when the phone is in Silent Mode. HTMLAudioElement is
-// routed through the media playback path instead.
 const IOS_TONE='data:audio/wav;base64,UklGRgQCAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YeABAAAAAK0AUQLyA20E9gKD/+n6rPaB9Kr1cvrnAQwKVxCEElcPIgfY+5PwwegR55TsRPgpB0UUohtFG1kTIwZa9xnrw+QJ5n/uuvsDCmIVuBqYGKwPfwLD9Efq7OXW6CTyMv9VDOsVVRmwFRMMOP+38gbqhefS66z1RQIbDucVixelEqMIWvw38U3qeunm7v/46gRVD2EVbxWOD3AF8PlC8A7rt+v88Q78FwcGEGkUFxOADIoCAvjS7znsJu789Mj+xgg1EA4TlxCRCQAAkfbh77/tsfDV9x8B9wnsD2MRBQ7UBt39oPVi8IrvQ/Ny+gwDqwo3D3sPeAtaBCj8KfVI8YnxyPXG/IgE5gokDmwNAgkwAub6J/WC8qXzKvjC/pAFsgrGDEkLtwZjABj6j/UB9Mr1WfpdACQGGQotCycJpwT8/rz5Vvav9eT3RvyQAUkGKAltCRkH4gL//cz5bPd79+D54f1XAgYG7webBzMFcgFt/UD6wvhP+az7Iv+zAmQFgQbKBYUDYgBH/Qz7RvoY+zj9AAClAnAE7gQNBB4CuP+H/ST84/vE/Hf+dwA0AjkDSgN3AgkBdP8m/nf9iP1B/l//hwBqAc4BqgEYAVEAl/8a//T+IP9+/+b/MgBQAEMAHwA=';
+const IOS_AUDIO_POOL_SIZE=16;
 
 function isIOSDevice(){
   return /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -40,7 +37,8 @@ export function Game({challengeId}:{challengeId?:string}){
   const lastUrgentSecond=useRef(11);
   const arenaRef=useRef<HTMLDivElement>(null);
   const audioRef=useRef<AudioContext|null>(null);
-  const mediaAudioRef=useRef<HTMLAudioElement|null>(null);
+  const mediaAudioPoolRef=useRef<HTMLAudioElement[]>([]);
+  const mediaAudioIndexRef=useRef(0);
   const score=events.filter(e=>e.type==='hit').length;
   const urgentSecond=remaining<=10000&&remaining>0?Math.ceil(remaining/1000):null;
 
@@ -51,13 +49,15 @@ export function Game({challengeId}:{challengeId?:string}){
     }catch{}
   },[]);
 
-  const getMediaAudio=useCallback(()=>{
-    if(mediaAudioRef.current)return mediaAudioRef.current;
-    const audio=new Audio(IOS_TONE);
-    audio.preload='auto';
-    audio.volume=.18;
-    mediaAudioRef.current=audio;
-    return audio;
+  const getMediaAudioPool=useCallback(()=>{
+    if(mediaAudioPoolRef.current.length)return mediaAudioPoolRef.current;
+    mediaAudioPoolRef.current=Array.from({length:IOS_AUDIO_POOL_SIZE},()=>{
+      const audio=new Audio(IOS_TONE);
+      audio.preload='auto';
+      audio.volume=.18;
+      return audio;
+    });
+    return mediaAudioPoolRef.current;
   },[]);
 
   const getAudioContext=useCallback(()=>{
@@ -76,46 +76,65 @@ export function Game({challengeId}:{challengeId?:string}){
     g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d);o.stop(c.currentTime+d);
   },[]);
 
+  const emitWebAudio=useCallback((f:number,d=.05)=>{
+    try{
+      const c=getAudioContext();
+      const emit=()=>emitTone(c,f,d);
+      if(c.state==='suspended')void c.resume().then(emit).catch(()=>{});
+      else emit();
+    }catch{}
+  },[getAudioContext,emitTone]);
+
   const unlockAudio=useCallback(async()=>{
     try{
       configurePlaybackSession();
-      if(isIOSDevice()){
-        const audio=getMediaAudio();
-        const normalVolume=audio.volume||.18;
-        audio.pause();audio.currentTime=0;audio.volume=.001;
-        try{await audio.play()}catch{}
-        audio.pause();audio.currentTime=0;audio.volume=normalVolume;
-        return;
-      }
       const c=getAudioContext();
       const resumePromise=c.state==='suspended'?c.resume():Promise.resolve();
       const o=c.createOscillator(),g=c.createGain();
       o.frequency.value=1;
       g.gain.setValueAtTime(.00001,c.currentTime);
       o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.02);
+
+      if(isIOSDevice()){
+        const pool=getMediaAudioPool();
+        const plays=pool.map(audio=>{
+          audio.volume=.001;
+          audio.currentTime=0;
+          try{return audio.play().catch(()=>{})}catch{return Promise.resolve()}
+        });
+        await Promise.allSettled([resumePromise,...plays]);
+        for(const audio of pool){
+          audio.pause();
+          try{audio.currentTime=0}catch{}
+          audio.volume=.18;
+        }
+        mediaAudioIndexRef.current=0;
+        return;
+      }
       await resumePromise;
     }catch{}
-  },[configurePlaybackSession,getMediaAudio,getAudioContext]);
+  },[configurePlaybackSession,getAudioContext,getMediaAudioPool]);
 
   const playSound=useCallback((f:number,d=.05)=>{
     if(muted)return;
     try{
       configurePlaybackSession();
       if(isIOSDevice()){
-        const audio=getMediaAudio();
-        audio.pause();
-        audio.currentTime=0;
+        const pool=getMediaAudioPool();
+        const audio=pool[mediaAudioIndexRef.current%pool.length];
+        mediaAudioIndexRef.current=(mediaAudioIndexRef.current+1)%pool.length;
         audio.playbackRate=Math.max(.65,Math.min(1.8,f/680));
         audio.volume=.18;
-        void audio.play().catch(()=>{});
+        try{audio.currentTime=0}catch{}
+        try{
+          const started=audio.play();
+          if(started)void started.catch(()=>emitWebAudio(f,d));
+        }catch{emitWebAudio(f,d)}
         return;
       }
-      const c=getAudioContext();
-      const emit=()=>emitTone(c,f,d);
-      if(c.state==='suspended')void c.resume().then(emit).catch(()=>{});
-      else emit();
+      emitWebAudio(f,d);
     }catch{}
-  },[muted,configurePlaybackSession,getMediaAudio,getAudioContext,emitTone]);
+  },[muted,configurePlaybackSession,getMediaAudioPool,emitWebAudio]);
 
   const finish=useCallback(async()=>{
     if(finishing.current||!session)return;
@@ -166,7 +185,6 @@ export function Game({challengeId}:{challengeId?:string}){
     const resumeAudio=()=>{
       if(muted||document.visibilityState!=='visible')return;
       configurePlaybackSession();
-      if(isIOSDevice())return;
       const c=audioRef.current;
       if(c?.state==='suspended')void c.resume().catch(()=>{});
     };
