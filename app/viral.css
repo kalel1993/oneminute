@@ -75,6 +75,38 @@
 .secondaryMega:hover,.secondaryMega:focus-visible{
   border-color:var(--acid);
 }
+.visitorStats{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  max-width:900px;
+  margin:0 0 22px;
+  border:1px solid #444;
+}
+.visitorStats>div{
+  padding:18px 20px;
+}
+.visitorStats>div+div{
+  border-left:1px solid #444;
+}
+.visitorStats b{
+  display:block;
+  color:var(--acid);
+  font-size:clamp(30px,6vw,54px);
+  line-height:1;
+}
+.visitorStats b i{
+  font-style:normal;
+  font-size:.45em;
+  vertical-align:middle;
+}
+.visitorStats span{
+  display:block;
+  margin-top:7px;
+  color:var(--muted);
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:1.5px;
+}
 .replayHook{
   margin:8px 0 20px;
   max-width:850px;
@@ -186,4 +218,6 @@
   .stageAnnouncement{top:calc(15% + 8px);font-size:14px;padding:8px 11px;}
   .heroActions{flex-direction:column;max-width:430px;}
   .heroActions .megaButton{width:100%;max-width:none;}
+  .visitorStats{grid-template-columns:1fr 1fr;}
+  .visitorStats>div{padding:14px 12px;}
 }

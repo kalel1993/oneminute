@@ -1,9 +1,22 @@
 import { pgTable, text, timestamp, integer, boolean, jsonb, index, uniqueIndex, date } from 'drizzle-orm/pg-core';
-export const players=pgTable('players',{id:text('id').primaryKey(),displayName:text('display_name').notNull(),clerkUserId:text('clerk_user_id'),credits:integer('credits').default(0).notNull(),dailyPlayDate:date('daily_play_date'),dailyPlays:integer('daily_plays').default(0).notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()},t=>[uniqueIndex('players_clerk_user_id_unique').on(t.clerkUserId)]);
+
+export const players=pgTable('players',{
+  id:text('id').primaryKey(),
+  displayName:text('display_name').notNull(),
+  clerkUserId:text('clerk_user_id'),
+  credits:integer('credits').default(0).notNull(),
+  dailyPlayDate:date('daily_play_date'),
+  dailyPlays:integer('daily_plays').default(0).notNull(),
+  lastSeenAt:timestamp('last_seen_at',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull(),
+},t=>[
+  uniqueIndex('players_clerk_user_id_unique').on(t.clerkUserId),
+  index('players_last_seen_at_idx').on(t.lastSeenAt),
+]);
+
 export const sessions=pgTable('game_sessions',{id:text('id').primaryKey(),playerId:text('player_id').references(()=>players.id).notNull(),mode:text('mode').notNull(),seed:integer('seed').notNull(),startedAt:timestamp('started_at',{withTimezone:true}).notNull(),finishedAt:timestamp('finished_at',{withTimezone:true}),score:integer('score'),valid:boolean('valid').default(false).notNull(),suspicious:boolean('suspicious').default(false).notNull(),trace:jsonb('trace')},t=>[index('sessions_player_time').on(t.playerId,t.startedAt)]);
 export const challenges=pgTable('challenges',{id:text('id').primaryKey(),creatorId:text('creator_id').references(()=>players.id).notNull(),sessionId:text('session_id').references(()=>sessions.id).notNull(),parentId:text('parent_id'),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
 export const activity=pgTable('activity_events',{id:text('id').primaryKey(),playerId:text('player_id').references(()=>players.id).notNull(),kind:text('kind').notNull(),score:integer('score'),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
 export const submissions=pgTable('submissions',{sessionId:text('session_id').primaryKey().references(()=>sessions.id),fingerprint:text('fingerprint').notNull()});
 export const creditPurchases=pgTable('credit_purchases',{stripeSessionId:text('stripe_session_id').primaryKey(),playerId:text('player_id').references(()=>players.id).notNull(),credits:integer('credits').notNull(),amount:integer('amount').notNull(),currency:text('currency').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()},t=>[index('credit_purchases_player_time').on(t.playerId,t.createdAt)]);
 export const rateLimitBuckets=pgTable('rate_limit_buckets',{key:text('key').primaryKey(),windowStart:timestamp('window_start',{withTimezone:true}).notNull(),count:integer('count').default(0).notNull(),updatedAt:timestamp('updated_at',{withTimezone:true}).defaultNow().notNull()},t=>[index('rate_limit_buckets_updated_at').on(t.updatedAt)]);
-

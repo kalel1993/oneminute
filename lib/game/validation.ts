@@ -1,5 +1,8 @@
 import { activeTargetCount, GameEvent, Mode, stats, targetAt } from './engine';
 
+const STAGE_BOUNDARIES=[30000,40000];
+const BOUNDARY_GRACE_MS=120;
+
 export function validateTrace(seed: number, events: GameEvent[], elapsed: number, mode: Mode = 'mouse') {
   const reasons: string[] = [];
   if (elapsed < 59500 || elapsed > 75000) reasons.push('invalid duration');
@@ -22,22 +25,37 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
     }
 
     if (event.type === 'hit') {
-      const active = activeTargetCount(event.t);
       const targetId = event.targetId;
-      if (!Number.isInteger(targetId) || targetId == null || targetId < 0 || targetId >= active) {
+      const active = activeTargetCount(event.t);
+      const candidateTimes=[event.t];
+      for(const boundary of STAGE_BOUNDARIES){
+        if(event.t>=boundary&&event.t<=boundary+BOUNDARY_GRACE_MS)candidateTimes.push(boundary-1);
+      }
+
+      const candidates=Number.isInteger(targetId)&&targetId!=null
+        ?candidateTimes
+          .filter(time=>targetId>=0&&targetId<activeTargetCount(time))
+          .map(time=>targetAt(seed,targetId,generations[targetId],time))
+        :[];
+
+      if (!Number.isInteger(targetId) || targetId == null || targetId < 0 || targetId >= active || !candidates.length) {
         reasons.push('invalid target id');
       } else {
-        const target = targetAt(seed, targetId, generations[targetId], event.t);
-        const distance = Math.hypot(event.x - target.x, event.y - target.y);
-        const touchFloor = active >= 4 ? 5.4 : active === 2 ? 5.0 : 4.8;
+        let distance=Number.POSITIVE_INFINITY;
+        let radius=0;
+        for(const target of candidates){
+          const candidateDistance=Math.hypot(event.x-target.x,event.y-target.y);
+          if(candidateDistance<distance){distance=candidateDistance;radius=target.r}
+        }
+        const touchFloor = active >= 4 ? 6.4 : active === 2 ? 6.0 : 5.8;
         const allowedDistance = mode === 'touch'
-          ? Math.max(touchFloor, target.r + 1.2)
-          : Math.max(2.8, target.r + 1.0);
+          ? Math.max(touchFloor, radius + 1.4)
+          : Math.max(2.8, radius + 1.0);
         if (distance > allowedDistance) reasons.push('hit outside target');
         generations[targetId] += 1;
         hitOffsets.push(distance);
       }
-      if (event.t < 75 || event.t - lastHit < 45) reasons.push('implausible hit rate');
+      if (event.t < 60) reasons.push('implausible hit rate');
       lastHit = event.t;
       hitTimes.push(event.t);
       hits += 1;
@@ -45,6 +63,12 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
   }
 
   if (hits > 320) reasons.push('implausible score');
+  if (hitTimes.length >= 2) {
+    const intervals = hitTimes.slice(1).map((time, index) => time - hitTimes[index]);
+    const ultraFast=intervals.filter(interval=>interval<30).length;
+    if(ultraFast>=4&&ultraFast/intervals.length>=0.08)reasons.push('implausible hit rate');
+  }
+
   if (hitTimes.length >= 25) {
     const intervals = hitTimes.slice(1).map((time, index) => time - hitTimes[index]);
     const frequencies = new Map<number, number>();

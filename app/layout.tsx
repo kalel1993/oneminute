@@ -1,6 +1,7 @@
 import type {Metadata,Viewport} from 'next';
 import {ClerkProvider} from '@clerk/nextjs';
 import {Analytics} from '@vercel/analytics/next';
+import {PresenceTracker} from '@/components/PresenceTracker';
 import {clerkConfigured} from '@/lib/server';
 import './globals.css';
 import './viral.css';
@@ -17,6 +18,6 @@ export const metadata:Metadata={
 };
 export const viewport:Viewport={themeColor:'#0b0b0a',width:'device-width',initialScale:1,maximumScale:1};
 export default function RootLayout({children}:{children:React.ReactNode}){
-  const content=<>{children}<Analytics/></>;
+  const content=<>{children}<PresenceTracker/><Analytics/></>;
   return <html lang="en"><body>{clerkConfigured()?<ClerkProvider>{content}</ClerkProvider>:content}</body></html>;
 }
