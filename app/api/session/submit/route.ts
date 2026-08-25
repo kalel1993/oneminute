@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { identity, sameOrigin, fingerprint, token } from '@/lib/server';
 import { getDb, hasDb } from '@/lib/db';
 import { activity, sessions, submissions } from '@/lib/db/schema';
@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     windowMs: 10 * 60 * 1000,
   });
   if (playerLimit) return playerLimit;
+
   const db = getDb();
   const [session] = await db
     .select()
@@ -62,6 +63,12 @@ export async function POST(req: Request) {
 
   const elapsed = Date.now() - session.startedAt.getTime();
   const result = validateTrace(session.seed, body.data.events, elapsed);
+  const [recordBefore] = await db
+    .select({ score: sql<number | null>`max(${sessions.score})` })
+    .from(sessions)
+    .where(and(eq(sessions.valid, true), eq(sessions.mode, session.mode)));
+  const previousRecord = recordBefore?.score ?? null;
+
   const [finalized] = await db
     .update(sessions)
     .set({
@@ -88,40 +95,64 @@ export async function POST(req: Request) {
     .values({ sessionId: session.id, fingerprint: fingerprint(body.data.events) })
     .onConflictDoNothing();
 
-  if (result.valid) {
-    await db.insert(activity).values({
-      id: token(),
-      playerId: player.id,
-      kind: 'completed',
-      score: result.score,
-    });
-  } else {
+  if (!result.valid) {
     return NextResponse.json({ ranked: false, result, reasons: result.reasons });
   }
 
-  const [{ total }] = await db
-    .select({ total: sql<number>`count(*)::int` })
+  await db.insert(activity).values({
+    id: token(),
+    playerId: player.id,
+    kind: `completed:${session.mode}`,
+    score: result.score,
+  });
+
+  const bestScores = db
+    .select({
+      playerId: sessions.playerId,
+      bestScore: sql<number>`max(${sessions.score})`.as('best_score'),
+    })
     .from(sessions)
-    .where(and(eq(sessions.valid, true), eq(sessions.mode, session.mode)));
+    .where(and(eq(sessions.valid, true), eq(sessions.mode, session.mode)))
+    .groupBy(sessions.playerId)
+    .as('best_scores');
+
+  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(bestScores);
   const [{ better }] = await db
     .select({ better: sql<number>`count(*)::int` })
-    .from(sessions)
-    .where(
-      and(eq(sessions.valid, true), eq(sessions.mode, session.mode), gt(sessions.score, result.score)),
-    );
+    .from(bestScores)
+    .where(gt(bestScores.bestScore, result.score));
 
   const rank = better + 1;
-  const percentile = Math.max(1, Math.round(((total - better) / total) * 100));
+  const percentile = total > 0 ? Math.max(1, Math.round(((total - better) / total) * 100)) : 100;
+  const [next] = await db
+    .select({ score: bestScores.bestScore })
+    .from(bestScores)
+    .where(gt(bestScores.bestScore, result.score))
+    .orderBy(asc(bestScores.bestScore))
+    .limit(1);
+
+  let nextTarget: { score: number; rank: number; hitsNeeded: number } | null = null;
+  if (next?.score != null) {
+    const [{ aboveNext }] = await db
+      .select({ aboveNext: sql<number>`count(*)::int` })
+      .from(bestScores)
+      .where(gt(bestScores.bestScore, next.score));
+    nextTarget = {
+      score: next.score,
+      rank: aboveNext + 1,
+      hitsNeeded: Math.max(1, next.score - result.score),
+    };
+  }
+
   return NextResponse.json({
     ranked: true,
     result: {
       ...result,
       rank,
       percentile,
-      worldRecord: rank === 1 && total > 0,
-      nextTarget: rank > 1 ? 1 : null,
+      worldRecord: previousRecord === null || result.score > previousRecord,
+      nextTarget,
     },
     reasons: [],
   });
 }
-

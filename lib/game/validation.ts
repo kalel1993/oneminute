@@ -8,7 +8,9 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
   let prior = -1;
   let hits = 0;
   let lastHit = -1000;
+  let spawnedAt = 0;
   const hitTimes: number[] = [];
+  const hitOffsets: number[] = [];
 
   for (const event of events) {
     if (event.t < prior || event.t < 0 || event.t > 60500) reasons.push('non-monotonic timing');
@@ -20,12 +22,15 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
     }
 
     if (event.type === 'hit') {
-      const target = targetAt(seed, hits);
+      const target = targetAt(seed, hits, spawnedAt);
       const distance = Math.hypot(event.x - target.x, event.y - target.y);
-      if (distance > 12) reasons.push('hit outside target');
+      const allowedDistance = Math.max(3.8, target.r + 1.4);
+      if (distance > allowedDistance) reasons.push('hit outside target');
       if (event.t < 75 || event.t - lastHit < 45) reasons.push('implausible hit rate');
       lastHit = event.t;
+      spawnedAt = event.t;
       hitTimes.push(event.t);
+      hitOffsets.push(distance);
       hits += 1;
     }
   }
@@ -41,8 +46,10 @@ export function validateTrace(seed: number, events: GameEvent[], elapsed: number
       intervals.reduce((sum, interval) => sum + (interval - mean) ** 2, 0) / intervals.length,
     );
     if (repeated / intervals.length >= 0.8 || deviation < 1.5) reasons.push('machine-like timing');
+
+    const nearPerfect = hitOffsets.filter(offset => offset < 0.08).length;
+    if (nearPerfect / hitOffsets.length >= 0.9) reasons.push('machine-like targeting');
   }
 
   return { valid: reasons.length === 0, reasons: [...new Set(reasons)], ...stats(events) };
 }
-

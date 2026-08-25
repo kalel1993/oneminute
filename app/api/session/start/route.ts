@@ -3,12 +3,13 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getDb, hasDb } from '@/lib/db';
 import { players, sessions } from '@/lib/db/schema';
+import { isAllowedDisplayName } from '@/lib/moderation';
 import { bodyWithinLimit, payloadTooLarge, rateLimitRequest } from '@/lib/protection';
 import { identity, sameOrigin, seed, token } from '@/lib/server';
 
 const requestSchema = z.object({
   mode: z.enum(['touch', 'mouse']),
-  displayName: z.string().trim().min(2).max(20).regex(/^[a-zA-Z0-9 _-]+$/),
+  displayName: z.string().trim().min(2).max(20).regex(/^[a-zA-Z0-9 _-]+$/).optional(),
 });
 
 export async function POST(req: Request) {
@@ -27,7 +28,13 @@ export async function POST(req: Request) {
   const parsed = requestSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json(
-      { error: 'Choose a name using 2–20 letters, numbers, spaces, _ or -.' },
+      { error: 'Leaderboard names use 2–20 letters, numbers, spaces, _ or -.' },
+      { status: 400 },
+    );
+  }
+  if (parsed.data.displayName && !isAllowedDisplayName(parsed.data.displayName)) {
+    return NextResponse.json(
+      { error: 'Choose a different leaderboard name.' },
       { status: 400 },
     );
   }
@@ -122,4 +129,3 @@ export async function POST(req: Request) {
     usage: { freeRemaining, creditUsed, credits },
   });
 }
-
