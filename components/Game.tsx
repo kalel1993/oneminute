@@ -32,6 +32,7 @@ export function Game({challengeId}:{challengeId?:string}){
   const[challengeUrl,setChallengeUrl]=useState('');
   const[arenaSize,setArenaSize]=useState({w:0,h:0});
   const[stageAnnouncement,setStageAnnouncement]=useState('');
+  const[mode,setMode]=useState<'touch'|'mouse'>('touch');
   const startRef=useRef(0);
   const eventsRef=useRef<GameEvent[]>([]);
   const generationsRef=useRef<[number,number,number,number]>([0,0,0,0]);
@@ -179,7 +180,7 @@ export function Game({challengeId}:{challengeId?:string}){
     playSound(activeCount===2?980:1180,.18);
     navigator.vibrate?.(activeCount===2?[70,40,70]:[70,30,70,30,100]);
     if(announcementTimerRef.current)window.clearTimeout(announcementTimerRef.current);
-    announcementTimerRef.current=window.setTimeout(()=>setStageAnnouncement(''),950);
+    announcementTimerRef.current=window.setTimeout(()=>setStageAnnouncement(''),650);
   },[phase,activeCount,playSound]);
 
   useEffect(()=>()=>{
@@ -230,13 +231,14 @@ export function Game({challengeId}:{challengeId?:string}){
     setGenerations([0,0,0,0]);
     setEvents([]);setSubmit(undefined);setRival(undefined);setChallengeUrl('');setMessage('');setStageAnnouncement('');
     try{
-      const mode:'touch'|'mouse'=matchMedia('(pointer: coarse)').matches?'touch':'mouse';
-      const r=await fetch('/api/session/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode})});
+      const nextMode:'touch'|'mouse'=matchMedia('(pointer: coarse)').matches?'touch':'mouse';
+      setMode(nextMode);
+      const r=await fetch('/api/session/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:nextMode})});
       const data=await r.json().catch(()=>({error:'Could not start. Check your connection and try again.'}));
       if(!r.ok){setMessage(data.error||'Could not start. Check your connection and try again.');return}
       const s=data as Session;
       setSession(s);setPhase('countdown');
-      track(challengeId?'challenge_accepted':'play_started',{mode});
+      track(challengeId?'challenge_accepted':'play_started',{mode:nextMode});
       for(const value of ['3','2','1','GO']){
         setCount(value);playSound(value==='GO'?880:440,.1);
         await new Promise(res=>setTimeout(res,value==='GO'?500:750));
@@ -314,6 +316,7 @@ export function Game({challengeId}:{challengeId?:string}){
 
   if(phase==='playing'){
     const minArena=Math.min(arenaSize.w||700,arenaSize.h||700);
+    const touchFloor=elapsed<30000?40:elapsed<40000?38:elapsed<50000?34:30;
     return <main className={`gameShell${urgentSecond!==null?' finalTen':''}`}>
       <div className="hud">
         <div><label>SCORE</label><strong>{score}</strong></div>
@@ -322,17 +325,18 @@ export function Game({challengeId}:{challengeId?:string}){
         <button onClick={()=>void toggleSound()} aria-label={muted?'Unmute sounds':'Mute sounds'}>{muted?'SOUND OFF':'SOUND ON'}</button>
       </div>
       {stageAnnouncement&&<div className="stageAnnouncement" aria-live="assertive">{stageAnnouncement}</div>}
-      {urgentSecond!==null&&<div className="urgentCountdown" aria-live="assertive" aria-atomic="true"><span>{urgentSecond}</span><b>SECONDS</b></div>}
       <div ref={arenaRef} className="arena" onPointerDown={miss}>
         {renderedTargets.map(target=>{
-          const targetPixels=Math.max(24,Math.min(96,minArena*target.r*.02));
+          const naturalPixels=Math.min(96,minArena*target.r*.02);
+          const visualPixels=Math.max(mode==='touch'?touchFloor:24,naturalPixels);
+          const hitPixels=mode==='touch'?Math.max(40,visualPixels):visualPixels;
           return <button
             key={target.id}
             aria-label={`Hit target ${target.id+1}`}
-            className="target"
+            className="targetHit"
             onPointerDown={e=>hit(e,target.id)}
-            style={{left:`${target.x}%`,top:`${target.y}%`,width:`${targetPixels}px`,height:`${targetPixels}px`}}
-          >HIT</button>;
+            style={{left:`${target.x}%`,top:`${target.y}%`,width:`${hitPixels}px`,height:`${hitPixels}px`}}
+          ><span className="targetVisual" style={{width:`${visualPixels}px`,height:`${visualPixels}px`}}>HIT</span></button>;
         })}
       </div>
     </main>;
