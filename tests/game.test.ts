@@ -54,6 +54,12 @@ describe('anti-cheat validation',()=>{
     ],60000);
     expect(result.valid).toBe(true);
   });
+  it('allows the wider finger hit area on touch without widening mouse validation',()=>{
+    const target=targetAt(11,2,0,52000);
+    const edgeHit={type:'hit' as const,t:52000,x:target.x+4.7,y:target.y,targetId:2};
+    expect(validateTrace(11,[edgeHit],60000,'touch').valid).toBe(true);
+    expect(validateTrace(11,[edgeHit],60000,'mouse').reasons).toContain('hit outside target');
+  });
   it('rejects inactive target ids, short sessions, nonmonotonic traces and impossible speed',()=>{
     const a=targetAt(8,0,0,200);
     const r=validateTrace(8,[
